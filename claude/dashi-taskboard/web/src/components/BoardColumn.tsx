@@ -1,0 +1,170 @@
+import type { DragEvent } from "react";
+import { useTaskCardDragPreview } from "../useTaskCardDragPreview";
+import type { ActorIdentity, Task, TaskDraft, TaskStatus } from "../types";
+import { taskStatusLabel, useTaskboardI18n } from "../i18n";
+import type { TaskCardPresentation, TaskConversationItem } from "../taskConversations";
+import { TaskCard } from "./TaskCard";
+import { PlusIcon, StatusIcon } from "./SemanticIcons";
+
+export const STATUS_DETAILS: Record<
+  TaskStatus,
+  { label: string; tone: string }
+> = {
+  backlog: { label: "待立项", tone: "backlog" },
+  todo: { label: "等待认领", tone: "todo" },
+  in_progress: { label: "处理中", tone: "progress" },
+  in_review: { label: "等你确认", tone: "review" },
+  blocked: { label: "遇到阻碍", tone: "blocked" },
+  done: { label: "完成", tone: "done" },
+  canceled: { label: "取消", tone: "canceled" },
+};
+
+interface BoardColumnProps {
+  scrollRef: (element: HTMLDivElement | null) => void;
+  status: TaskStatus;
+  tasks: Task[];
+  presentations: Record<string, TaskCardPresentation>;
+  emptyMessage: string;
+  isDropTarget: boolean;
+  draggedTaskId: string | null;
+  draggedTaskHeight: number;
+  movingTaskId: string | null;
+  settlingTaskId: string | null;
+  contextMenuTaskId: string | null;
+  availableLabels: string[];
+  projectNames?: Record<string, string>;
+  currentUser: ActorIdentity;
+  showCover: boolean;
+  showBody: boolean;
+  showCreatedAt: boolean;
+  createEnabled?: boolean;
+  onCreateLabel: (label: string, projectId?: string) => Promise<void>;
+  onCreate: (status: TaskStatus) => void;
+  onEdit: (task: Task) => void;
+  onUpdate: (task: Task, changes: Partial<TaskDraft>) => Promise<Task>;
+  onComplete: (task: Task) => Promise<void>;
+  onContextMenu: (task: Task, position: { x: number; y: number }) => void;
+  onDragStart: (task: Task, height: number) => void;
+  onDragEnd: () => void;
+  onDragEnter: (status: TaskStatus) => void;
+  onDrop: (status: TaskStatus, taskId: string, beforeTaskId: string | null) => void;
+  onOpenConversation: (conversation: TaskConversationItem) => void;
+}
+
+export function BoardColumn({
+  scrollRef,
+  status,
+  tasks,
+  presentations,
+  emptyMessage,
+  isDropTarget,
+  draggedTaskId,
+  draggedTaskHeight,
+  movingTaskId,
+  settlingTaskId,
+  contextMenuTaskId,
+  availableLabels,
+  projectNames,
+  currentUser,
+  showCover,
+  showBody,
+  showCreatedAt,
+  createEnabled = true,
+  onCreateLabel,
+  onCreate,
+  onEdit,
+  onUpdate,
+  onComplete,
+  onContextMenu,
+  onDragStart,
+  onDragEnd,
+  onDragEnter,
+  onDrop,
+  onOpenConversation,
+}: BoardColumnProps) {
+  const { language, text } = useTaskboardI18n();
+  const details = STATUS_DETAILS[status];
+  const label = taskStatusLabel(language, status);
+  const { findDropBefore, clearDropPreview, updateDropPreview, leaveDropPreview, getTaskDragShift } =
+    useTaskCardDragPreview({ tasks, draggedTaskId, draggedTaskHeight, isDropTarget });
+
+  function handleDrop(event: DragEvent<HTMLElement>) {
+    event.preventDefault();
+    const taskId =
+      event.dataTransfer.getData("application/x-taskboard-task") ||
+      event.dataTransfer.getData("text/plain");
+    if (taskId) onDrop(status, taskId, findDropBefore(event.currentTarget, event.clientY));
+    clearDropPreview();
+  }
+
+  return (
+    <section
+      className={`board-column status-${status}${isDropTarget ? " is-drop-target" : ""}`}
+      aria-labelledby={`column-${status}`}
+      onDragEnter={() => onDragEnter(status)}
+      onDragOver={(event) => {
+        onDragEnter(status);
+        updateDropPreview(event);
+      }}
+      onDragLeave={leaveDropPreview}
+      onDrop={handleDrop}
+    >
+      <header className="column-header">
+        <div className="column-heading">
+          <span className={`column-status-icon status-icon-${details.tone}`}>
+            <StatusIcon status={status} color="var(--column-status-color)" size={14} />
+          </span>
+          <h2 id={`column-${status}`}>
+            {label}{tasks.length > 0 ? ` ${tasks.length}` : ""}
+          </h2>
+        </div>
+        {createEnabled && (
+          <div className="column-actions">
+            <button
+              type="button"
+              className="icon-button add-task-button"
+              onClick={() => onCreate(status)}
+              aria-label={text(`在${label}中新建议题`, `Create issue in ${label}`)}
+              title={text(`添加到${label}`, `Add to ${label}`)}
+            >
+              <PlusIcon color="var(--column-status-color)" size={12} />
+            </button>
+          </div>
+        )}
+      </header>
+
+      <div className="column-list" ref={scrollRef}>
+        {tasks.map((task) => {
+          const dragShift = getTaskDragShift(task.id);
+          return (
+            <TaskCard
+              key={task.id}
+              task={task}
+              presentation={presentations[task.id]}
+              isDragging={draggedTaskId === task.id}
+              dragShift={dragShift}
+              isMoving={movingTaskId === task.id}
+              isSettling={settlingTaskId === task.id}
+              isContextMenuOpen={contextMenuTaskId === task.id}
+              availableLabels={availableLabels}
+              projectName={projectNames?.[task.projectId]}
+              currentUser={currentUser}
+              showCover={showCover}
+              showBody={showBody}
+              showCreatedAt={showCreatedAt}
+              onCreateLabel={(label) => onCreateLabel(label, task.projectId)}
+              onEdit={onEdit}
+              onUpdate={onUpdate}
+              onComplete={onComplete}
+              onContextMenu={onContextMenu}
+              onDragStart={onDragStart}
+              onDragEnd={onDragEnd}
+              onOpenConversation={onOpenConversation}
+            />
+          );
+        })}
+        {tasks.length === 0 && <div className="column-empty">{emptyMessage}</div>}
+      </div>
+    </section>
+  );
+}
